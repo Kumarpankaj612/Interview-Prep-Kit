@@ -56,10 +56,12 @@ GitHub Pages can only host static files, so the API must live elsewhere:
 | `ANTHROPIC_API_KEY` | yes | Your Anthropic API key (never commit it) |
 | `ANTHROPIC_MODEL` | no | Defaults to `claude-sonnet-5-5` |
 | `ALLOWED_ORIGIN` | no | Only needed when the front-end is on a different origin |
+| `RATE_LIMIT_MAX` | no | Max API calls per IP per window (default `12`, about 3 kits) |
+| `RATE_LIMIT_WINDOW_SEC` | no | Window length in seconds (default `600`) |
 
 ## Cost and abuse note
 
-Anyone who can open your deployed site can trigger API calls on your key. Before sharing the link publicly, consider adding rate limiting or authentication, and set a spend limit in your Anthropic console.
+Anyone who can open your deployed site can trigger API calls on your key. The function includes simple per-IP rate limiting (default 12 calls per 10 minutes, roughly 3 kits). It is best-effort: serverless instances keep separate in-memory counters that reset on cold start. For strict limits, use a shared store such as Upstash Redis, and set a spend limit in your Anthropic console.
 
 ## Tech
 

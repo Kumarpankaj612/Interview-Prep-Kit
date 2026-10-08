@@ -11,6 +11,42 @@
 const MAX_INPUT_CHARS = 30000;
 const MAX_OUTPUT_TOKENS = 4096;
 
+/* ---- Simple per-IP rate limiting (sliding window, in memory) ----
+ * One prep kit = 4 API calls, so the default of 12 per 10 minutes allows
+ * about 3 kits per person per 10 minutes.
+ * Best-effort only: serverless instances each keep their own counters and
+ * reset on cold start. For strict limits use a shared store (e.g. Upstash Redis).
+ * Env overrides: RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SEC
+ */
+const RATE_MAX = parseInt(process.env.RATE_LIMIT_MAX, 10) || 12;
+const RATE_WINDOW_MS = (parseInt(process.env.RATE_LIMIT_WINDOW_SEC, 10) || 600) * 1000;
+const hits = new Map(); // ip -> array of request timestamps
+
+function clientIp(req) {
+  const fwd = req.headers && req.headers["x-forwarded-for"];
+  if (fwd) return String(fwd).split(",")[0].trim();
+  return (req.socket && req.socket.remoteAddress) || "unknown";
+}
+
+/* Returns 0 if allowed, otherwise the number of seconds until retry. */
+function checkRateLimit(ip, now = Date.now()) {
+  const recent = (hits.get(ip) || []).filter(t => now - t < RATE_WINDOW_MS);
+  if (recent.length >= RATE_MAX) {
+    hits.set(ip, recent);
+    return Math.max(1, Math.ceil((recent[0] + RATE_WINDOW_MS - now) / 1000));
+  }
+  recent.push(now);
+  hits.set(ip, recent);
+
+  // Occasional cleanup so the map can't grow without bound.
+  if (hits.size > 5000) {
+    for (const [key, times] of hits) {
+      if (!times.some(t => now - t < RATE_WINDOW_MS)) hits.delete(key);
+    }
+  }
+  return 0;
+}
+
 module.exports = async function handler(req, res) {
   const origin = process.env.ALLOWED_ORIGIN;
   if (origin) {
@@ -21,6 +57,15 @@ module.exports = async function handler(req, res) {
   }
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const retryAfter = checkRateLimit(clientIp(req));
+  if (retryAfter) {
+    res.setHeader("Retry-After", String(retryAfter));
+    const mins = Math.ceil(retryAfter / 60);
+    return res.status(429).json({
+      error: "Too many requests. Please wait about " + mins + " minute" + (mins === 1 ? "" : "s") + " and try again."
+    });
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "Server is missing ANTHROPIC_API_KEY" });
@@ -61,3 +106,5 @@ module.exports = async function handler(req, res) {
     return res.status(502).json({ error: "Failed to reach the Anthropic API" });
   }
 };
+
+module.exports.checkRateLimit = checkRateLimit; // exposed for testing
