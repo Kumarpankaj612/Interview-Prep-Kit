@@ -614,7 +614,49 @@ function refreshCta() {
 }
 
 /* ---------- Claude API helper ---------- */
+/* Where the standalone build sends generation requests. Change this to the
+   full URL of your deployed backend (e.g. "https://my-app.vercel.app/api/generate")
+   if the page is hosted somewhere other than the backend (e.g. GitHub Pages). */
+const API_URL = window.PREP_KIT_API_URL || "/api/generate";
+
+/* True only when running inside Claude's artifact runtime. */
+const HAS_CLAUDE_RUNTIME = typeof claude !== "undefined" && claude && typeof claude.use === "function";
+
+/* Standalone mode: ask our own backend (which holds the API key). */
+async function callBackend(system, user, maxTokens) {
+  let resp;
+  try {
+    resp = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system, user, maxTokens: maxTokens > 1000 ? 4096 : 1024 })
+    });
+  } catch (e) {
+    throw new Error("Couldn't reach the backend at " + API_URL + " — is it deployed and running?");
+  }
+  if (!resp.ok) {
+    let detail = "";
+    try { detail = (await resp.json()).error || ""; } catch (_) {}
+    throw new Error("Backend error " + resp.status + (detail ? " — " + detail : ""));
+  }
+  const { text } = await resp.json();
+  const clean = (text || "").replace(/```json/gi, "").replace(/```/g, "").trim();
+  try {
+    return JSON.parse(clean);
+  } catch (_) {
+    const repaired = repairTruncatedJson(clean);
+    if (repaired) {
+      console.warn("Recovered a truncated response by trimming the incomplete tail.");
+      return repaired;
+    }
+    throw new Error("The model returned malformed JSON. Please try again.");
+  }
+}
+
 async function callClaude(system, user, maxTokens = 1000) {
+  if (!HAS_CLAUDE_RUNTIME) {
+    return callBackend(system, user, maxTokens);
+  }
   const sample = await claude.use("sample");
   if (!sample) {
     throw new Error("Claude access isn't available in this view.");
@@ -1023,12 +1065,18 @@ document.getElementById('downloadPdfBtn').addEventListener('click', async () => 
     const doc = generatePdf(lastKit);
     const blob = doc.output('blob');
 
-    const downloads = await claude.use("downloads");
-    if (!downloads) {
-      throw new Error("downloads aren't available in this view");
+    let status = 'saved';
+    if (HAS_CLAUDE_RUNTIME) {
+      const downloads = await claude.use("downloads");
+      if (!downloads) {
+        throw new Error("downloads aren't available in this view");
+      }
+      const result = await downloads.save({ filename, data: blob });
+      status = result.status;
+    } else {
+      doc.save(filename);   // standard browser download
     }
-    const result = await downloads.save({ filename, data: blob });
-    btn.textContent = result.status === 'saved' ? 'Saved ✓' : 'Sent ✓';
+    btn.textContent = status === 'saved' ? 'Saved ✓' : 'Sent ✓';
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
   } catch (err) {
     console.error(err);

@@ -9,35 +9,63 @@ A single-page web app that builds a personalized interview prep kit. Upload (or 
 - 15 questions each for screening, behavioral, and technical rounds
 - Flip-card UI: question on the front, rationale and prep tip on the back
 - Export as **PDF**, **print**, or **copy as text**
-- Runs entirely in the browser, nothing is stored
+- Documents are processed in your browser; only the extracted text is sent to the backend to generate questions
+
+## Architecture
+
+```
+index.html          Front-end (single file, no build step)
+api/generate.js     Serverless proxy to the Anthropic API (keeps your key private)
+```
+
+The browser never sees your API key. `index.html` posts to `/api/generate`, which calls the Anthropic Messages API and returns the text.
+
+(If the page is opened inside Claude as an artifact, it uses Claude's built-in runtime instead and needs no backend.)
+
+## Run locally
+
+Requires Node 18+ and the [Vercel CLI](https://vercel.com/docs/cli).
+
+```bash
+npm i -g vercel
+cp .env.example .env        # then put your real ANTHROPIC_API_KEY in .env
+vercel dev
+```
+
+Open the printed local URL (usually http://localhost:3000).
+
+## Deploy (recommended: Vercel, front-end + API together)
+
+1. Push this repo to GitHub.
+2. Import the repo at [vercel.com/new](https://vercel.com/new).
+3. In **Settings → Environment Variables**, add `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_MODEL`).
+4. Deploy. The app and `/api/generate` are served from the same domain, so nothing else needs configuring.
+
+## Alternative: front-end on GitHub Pages, API on Vercel
+
+GitHub Pages can only host static files, so the API must live elsewhere:
+
+1. Deploy the repo to Vercel as above, and set `ALLOWED_ORIGIN` to `https://<your-username>.github.io`.
+2. In `index.html`, set `API_URL` to your full Vercel URL, e.g. `https://my-app.vercel.app/api/generate`.
+3. Enable **Settings → Pages → Deploy from a branch → `main` / root** on GitHub.
+
+## Environment variables
+
+| Name | Required | Description |
+|------|----------|-------------|
+| `ANTHROPIC_API_KEY` | yes | Your Anthropic API key (never commit it) |
+| `ANTHROPIC_MODEL` | no | Defaults to `claude-sonnet-5-5` |
+| `ALLOWED_ORIGIN` | no | Only needed when the front-end is on a different origin |
+
+## Cost and abuse note
+
+Anyone who can open your deployed site can trigger API calls on your key. Before sharing the link publicly, consider adding rate limiting or authentication, and set a spend limit in your Anthropic console.
 
 ## Tech
 
-- HTML, CSS, vanilla JavaScript (single file: `index.html`)
-- [pdf.js](https://mozilla.github.io/pdf.js/) for reading PDFs
-- [mammoth.js](https://github.com/mwilliamjohnston/mammoth.js) for reading DOCX
-- [jsPDF](https://github.com/parallax/jsPDF) for PDF export
+- HTML, CSS, vanilla JavaScript
+- [pdf.js](https://mozilla.github.io/pdf.js/), [mammoth.js](https://github.com/mwilliamjohnston/mammoth.js), [jsPDF](https://github.com/parallax/jsPDF)
 - Google Fonts: Fraunces, Inter, IBM Plex Mono
-
-## Usage
-
-1. Open `index.html` in a browser (or visit the GitHub Pages link once enabled).
-2. Add a resume and a job description.
-3. Click **Compile prep kit**.
-4. Flip cards to see why each question is asked, then export if you like.
-
-## Important note on question generation
-
-The question generation calls `claude.use("sample")` and PDF saving calls `claude.use("downloads")`. These are provided by the Claude artifact runtime, so **question generation and PDF download only work when the page is run inside Claude** (as a published artifact). Upload, paste, text extraction, flip cards, print, and copy work anywhere, but on GitHub Pages or locally the "Compile prep kit" step will show an error.
-
-To run it standalone, replace `callClaude()` in `index.html` with a call to an LLM API of your choice (use a small backend/proxy so you never expose an API key in front-end code), and replace the PDF save with `doc.save(filename)`.
-
-## Deploy with GitHub Pages
-
-1. Push this repo to GitHub.
-2. Go to **Settings → Pages**.
-3. Under **Build and deployment**, choose **Deploy from a branch**, select `main` and `/ (root)`, then save.
-4. Your site will appear at `https://<your-username>.github.io/<repo-name>/`.
 
 ## License
 

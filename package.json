@@ -1,0 +1,8 @@
+{
+  "name": "interview-prep-kit",
+  "version": "1.0.0",
+  "description": "Generate personalized interview prep questions from a resume and job description",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}
